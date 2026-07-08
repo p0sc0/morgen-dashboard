@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Morgen-dashboard</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0f1115;
+      color: white;
+      font-family: Arial, sans-serif;
+      padding: 22px;
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+    #clock {
+      font-size: 64px;
+      font-weight: 700;
+    }
+    #date {
+      font-size: 24px;
+      opacity: 0.85;
+      text-align: right;
+    }
+    .weather {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .card {
+      background: #181c24;
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+    .card h2 {
+      margin: 0 0 12px 0;
+      font-size: 24px;
+    }
+    iframe {
+      width: 100%;
+      height: 270px;
+      border: 0;
+      border-radius: 12px;
+      background: #111;
+    }
+    .bottom {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+    }
+    .train-main {
+      font-size: 30px;
+      font-weight: 700;
+      margin-top: 10px;
+    }
+    .muted {
+      opacity: 0.75;
+      font-size: 18px;
+      line-height: 1.4;
+    }
+    .week {
+      font-size: 28px;
+      font-weight: 700;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="top">
+    <div id="clock">--:--</div>
+    <div id="date">Laster dato...</div>
+  </div>
+
+  <div class="weather">
+    <div class="card">
+      <h2>Lillehammer</h2>
+      <iframe src="https://www.yr.no/nb/innhold/1-137683/card.html?mode=dark"></iframe>
+    </div>
+
+    <div class="card">
+      <h2>Hamar</h2>
+      <iframe src="https://www.yr.no/nb/innhold/1-130190/card.html?mode=dark"></iframe>
+    </div>
+
+    <div class="card">
+      <h2>Bærum</h2>
+      <iframe src="https://www.yr.no/nb/innhold/2-3161732/card.html?mode=dark"></iframe>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="card">
+      <h2>Tog til jobb</h2>
+      <div class="muted">Lillehammer → Hamar</div>
+      <div class="train-main">Avgang ca. 07:14</div>
+      <div class="muted" style="margin-top:12px;">
+        Foreløpig manuell visning. Neste steg er å koble dette mot Entur sanntid.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Kalender</h2>
+      <div id="week" class="week">Uke --</div>
+      <div class="muted" id="weekdays"></div>
+    </div>
+  </div>
+
+<script>
+function isoWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById("clock").textContent =
+    now.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" });
+
+  document.getElementById("date").innerHTML =
+    now.toLocaleDateString("no-NO", {
+      weekday: "long",
+      day: "numeric",
+      month: "long"
+    }) + "<br>Uke " + isoWeek(now);
+
+  document.getElementById("week").textContent = "Uke " + isoWeek(now);
+
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    days.push(d.toLocaleDateString("no-NO", {
+      weekday: "short",
+      day: "numeric",
+      month: "short"
+    }));
+  }
+  document.getElementById("weekdays").innerHTML = days.join("<br>");
+}
+
+updateClock();
+setInterval(updateClock, 10000);
+</script>
+
+</body>
+</html>
