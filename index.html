@@ -1,157 +1,155 @@
 <!doctype html>
 <html lang="no">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Morgen-dashboard</title>
-  <style>
-    body {
-      margin: 0;
-      background: #0f1115;
-      color: white;
-      font-family: Arial, sans-serif;
-      padding: 22px;
-    }
-    .top {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 22px;
-    }
-    #clock {
-      font-size: 64px;
-      font-weight: 700;
-    }
-    #date {
-      font-size: 24px;
-      opacity: 0.85;
-      text-align: right;
-    }
-    .weather {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
-      margin-bottom: 18px;
-    }
-    .card {
-      background: #181c24;
-      border-radius: 18px;
-      padding: 16px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
-    }
-    .card h2 {
-      margin: 0 0 12px 0;
-      font-size: 24px;
-    }
-    iframe {
-      width: 100%;
-      height: 270px;
-      border: 0;
-      border-radius: 12px;
-      background: #111;
-    }
-    .bottom {
-      display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 14px;
-    }
-    .train-main {
-      font-size: 30px;
-      font-weight: 700;
-      margin-top: 10px;
-    }
-    .muted {
-      opacity: 0.75;
-      font-size: 18px;
-      line-height: 1.4;
-    }
-    .week {
-      font-size: 28px;
-      font-weight: 700;
-      margin-top: 10px;
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Morgen-dashboard</title>
+<style>
+body{margin:0;background:#070b12;color:white;font-family:Arial,sans-serif;padding:24px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px}
+#clock{font-size:76px;font-weight:800}
+#date{text-align:right;font-size:28px;opacity:.9}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{background:#111824;border:1px solid #263346;border-radius:22px;padding:20px;box-shadow:0 10px 30px #0008}
+h2{margin:0 0 8px;font-size:30px}
+.now{display:flex;align-items:center;gap:18px;margin:12px 0 18px}
+.icon{font-size:54px}.temp{font-size:58px;font-weight:800}
+.meta{font-size:18px;opacity:.85;line-height:1.5}
+.hours{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}
+.hour{background:#0b111b;border-radius:14px;padding:12px;text-align:center}
+.hour .t{font-size:17px;opacity:.8}.hour .i{font-size:30px;margin:8px 0}.hour .c{font-size:24px;font-weight:700}
+.bottom{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-top:16px}
+.big{font-size:34px;font-weight:800}.muted{opacity:.75;font-size:20px;line-height:1.45}
+</style>
 </head>
 <body>
 
-  <div class="top">
-    <div id="clock">--:--</div>
-    <div id="date">Laster dato...</div>
+<div class="top">
+  <div id="clock">--:--</div>
+  <div id="date"></div>
+</div>
+
+<div class="grid" id="weather"></div>
+
+<div class="bottom">
+  <div class="card">
+    <h2>Tog til jobb</h2>
+    <div class="muted">Lillehammer → Hamar</div>
+    <div class="big">Avgang ca. 07:14</div>
+    <div class="muted">Neste versjon: sanntid fra Entur.</div>
   </div>
-
-  <div class="weather">
-    <div class="card">
-      <h2>Lillehammer</h2>
-      <iframe src="https://www.yr.no/nb/innhold/1-137683/card.html?mode=dark"></iframe>
-    </div>
-
-    <div class="card">
-      <h2>Hamar</h2>
-      <iframe src="https://www.yr.no/nb/innhold/1-130190/card.html?mode=dark"></iframe>
-    </div>
-
-    <div class="card">
-      <h2>Bærum</h2>
-      <iframe src="https://www.yr.no/nb/innhold/2-3161732/card.html?mode=dark"></iframe>
-    </div>
+  <div class="card">
+    <h2>Kalender</h2>
+    <div id="week" class="big"></div>
+    <div id="days" class="muted"></div>
   </div>
-
-  <div class="bottom">
-    <div class="card">
-      <h2>Tog til jobb</h2>
-      <div class="muted">Lillehammer → Hamar</div>
-      <div class="train-main">Avgang ca. 07:14</div>
-      <div class="muted" style="margin-top:12px;">
-        Foreløpig manuell visning. Neste steg er å koble dette mot Entur sanntid.
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Kalender</h2>
-      <div id="week" class="week">Uke --</div>
-      <div class="muted" id="weekdays"></div>
-    </div>
-  </div>
+</div>
 
 <script>
-function isoWeek(date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+const steder = [
+  {navn:"Lillehammer", lat:61.1153, lon:10.4662},
+  {navn:"Hamar", lat:60.7945, lon:11.0679},
+  {navn:"Bærum", lat:59.9205, lon:10.5938}
+];
+
+function icon(code){
+  if([0].includes(code)) return "☀️";
+  if([1,2].includes(code)) return "🌤️";
+  if([3].includes(code)) return "☁️";
+  if([45,48].includes(code)) return "🌫️";
+  if([51,53,55,61,63,65,80,81,82].includes(code)) return "🌧️";
+  if([71,73,75,77,85,86].includes(code)) return "❄️";
+  if([95,96,99].includes(code)) return "⛈️";
+  return "🌡️";
 }
 
-function updateClock() {
-  const now = new Date();
-  document.getElementById("clock").textContent =
-    now.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" });
+function desc(code){
+  if(code===0) return "Klart";
+  if([1,2].includes(code)) return "Delvis skyet";
+  if(code===3) return "Overskyet";
+  if([45,48].includes(code)) return "Tåke";
+  if([51,53,55].includes(code)) return "Yr";
+  if([61,63,65,80,81,82].includes(code)) return "Regn";
+  if([71,73,75,77,85,86].includes(code)) return "Snø";
+  if([95,96,99].includes(code)) return "Torden";
+  return "Vær";
+}
 
-  document.getElementById("date").innerHTML =
-    now.toLocaleDateString("no-NO", {
-      weekday: "long",
-      day: "numeric",
-      month: "long"
-    }) + "<br>Uke " + isoWeek(now);
+function isoWeek(d){
+  const date = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate()+4-dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+  return Math.ceil((((date-yearStart)/86400000)+1)/7);
+}
 
-  document.getElementById("week").textContent = "Uke " + isoWeek(now);
-
-  const days = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() + i);
-    days.push(d.toLocaleDateString("no-NO", {
-      weekday: "short",
-      day: "numeric",
-      month: "short"
-    }));
+function updateClock(){
+  const n = new Date();
+  clock.textContent = n.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"});
+  date.innerHTML = n.toLocaleDateString("no-NO",{weekday:"long",day:"numeric",month:"long"})+"<br>Uke "+isoWeek(n);
+  week.textContent = "Uke "+isoWeek(n);
+  let out="";
+  for(let i=0;i<7;i++){
+    const d=new Date(n); d.setDate(n.getDate()+i);
+    out += d.toLocaleDateString("no-NO",{weekday:"short",day:"numeric",month:"short"})+"<br>";
   }
-  document.getElementById("weekdays").innerHTML = days.join("<br>");
+  days.innerHTML=out;
+}
+
+async function hentVaer(sted){
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${sted.lat}&longitude=${sted.lon}&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&forecast_days=2&timezone=Europe%2FOslo`;
+  const r=await fetch(url);
+  const data=await r.json();
+
+  const now=new Date();
+  const times=data.hourly.time.map(t=>new Date(t));
+  let idx=times.findIndex(t=>t>=now);
+  if(idx<0) idx=0;
+
+  const h=data.hourly;
+  const slots=[];
+  for(const hour of [6,12,18,24]){
+    const target=new Date(now);
+    target.setHours(hour===24?0:hour,0,0,0);
+    if(hour===24) target.setDate(target.getDate()+1);
+    let best=0, diff=Infinity;
+    times.forEach((t,i)=>{const d=Math.abs(t-target); if(d<diff){diff=d;best=i;}});
+    slots.push(best);
+  }
+
+  return `
+  <div class="card">
+    <h2>${sted.navn}</h2>
+    <div class="meta">I dag: ${Math.round(data.daily.temperature_2m_min[0])}° / ${Math.round(data.daily.temperature_2m_max[0])}° · Nedbør ${data.daily.precipitation_sum[0].toFixed(1)} mm</div>
+    <div class="now">
+      <div class="icon">${icon(h.weather_code[idx])}</div>
+      <div>
+        <div class="temp">${Math.round(h.temperature_2m[idx])}°</div>
+        <div class="meta">${desc(h.weather_code[idx])}<br>Vind ${Math.round(h.wind_speed_10m[idx])} km/t · ${h.precipitation[idx].toFixed(1)} mm</div>
+      </div>
+    </div>
+    <div class="hours">
+      ${slots.map(i=>`
+        <div class="hour">
+          <div class="t">${times[i].toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}</div>
+          <div class="i">${icon(h.weather_code[i])}</div>
+          <div class="c">${Math.round(h.temperature_2m[i])}°</div>
+          <div class="t">${h.precipitation[i].toFixed(1)} mm</div>
+        </div>
+      `).join("")}
+    </div>
+  </div>`;
+}
+
+async function tegn(){
+  weather.innerHTML = "Laster vær...";
+  weather.innerHTML = (await Promise.all(steder.map(hentVaer))).join("");
 }
 
 updateClock();
-setInterval(updateClock, 10000);
+setInterval(updateClock,10000);
+tegn();
+setInterval(tegn,15*60*1000);
 </script>
-
 </body>
 </html>
