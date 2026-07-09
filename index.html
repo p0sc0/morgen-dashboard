@@ -151,37 +151,130 @@ function drawCalendar(){
   html+="</table>";
   calendar.innerHTML=html;
 }
-
 async function hentTog(){
-  const tomorrowOrToday = new Date();
-  tomorrowOrToday.setHours(7,0,0,0);
-  if(new Date().getHours() > 10) tomorrowOrToday.setDate(tomorrowOrToday.getDate()+1);
-
   const query = `
-  query($dateTime: DateTime!) {
-    trip(
-      from: {coordinates: {latitude: 61.1153, longitude: 10.4662}, name: "Lillehammer"}
-      to: {coordinates: {latitude: 60.7945, longitude: 11.0679}, name: "Hamar"}
-      dateTime: $dateTime
-      numTripPatterns: 4
-      modes: {transportModes: [rail]}
-    ) {
-      tripPatterns {
-        duration
-        legs {
-          aimedStartTime
-          expectedStartTime
-          aimedEndTime
-          expectedEndTime
-          mode
-          line { publicCode name }
-          fromPlace { name quay { publicCode } }
-          toPlace { name quay { publicCode } }
-          situations { summary { value } description { value } }
+  {
+    stopPlace(id: "NSR:StopPlace:420") {
+      id
+      name
+      estimatedCalls(
+        timeRange: 14400
+        numberOfDepartures: 20
+        whiteListed: {modes: [rail]}
+      ) {
+        aimedDepartureTime
+        expectedDepartureTime
+        destinationDisplay {
+          frontText
+        }
+        serviceJourney {
+          journeyPattern {
+            line {
+              publicCode
+              name
+              transportMode
+            }
+          }
+        }
+        quay {
+          publicCode
+        }
+        situations {
+          summary {
+            value
+          }
+          description {
+            value
+          }
         }
       }
     }
   }`;
+
+  try {
+    const r = await fetch("https://api.entur.io/journey-planner/v3/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "ET-Client-Name": "hakon-morgen-dashboard"
+      },
+      body: JSON.stringify({ query })
+    });
+
+    const json = await r.json();
+
+    if (json.errors) {
+      throw new Error(json.errors[0].message);
+    }
+
+    const calls = json.data?.stopPlace?.estimatedCalls || [];
+
+    const relevant = calls.filter(c => {
+      const dest = (c.destinationDisplay?.frontText || "").toLowerCase();
+      const lineName = (c.serviceJourney?.journeyPattern?.line?.name || "").toLowerCase();
+      const code = (c.serviceJourney?.journeyPattern?.line?.publicCode || "").toLowerCase();
+
+      return (
+        dest.includes("hamar") ||
+        dest.includes("oslo") ||
+        dest.includes("drammen") ||
+        lineName.includes("hamar") ||
+        lineName.includes("oslo") ||
+        code.includes("r10") ||
+        code.includes("r60") ||
+        code.includes("r70")
+      );
+    });
+
+    let target = relevant.find(c => {
+      const t = new Date(c.aimedDepartureTime);
+      return t.getHours() === 7 && Math.abs(t.getMinutes() - 14) <= 20;
+    }) || relevant[0];
+
+    if (!target) {
+      throw new Error("Fant ingen relevant togavgang fra Lillehammer");
+    }
+
+    const aimed = new Date(target.aimedDepartureTime);
+    const expected = new Date(target.expectedDepartureTime || target.aimedDepartureTime);
+    const delay = Math.round((expected - aimed) / 60000);
+
+    const line = target.serviceJourney?.journeyPattern?.line;
+    const lineText = `${line?.publicCode || ""} ${line?.name || ""}`.trim();
+    const destination = target.destinationDisplay?.frontText || "ukjent retning";
+    const track = target.quay?.publicCode || "ikke oppgitt";
+
+    let cls = "ok";
+    let status = "I rute";
+
+    if (delay > 2 && delay < 10) {
+      cls = "warn";
+      status = `${delay} min forsinket`;
+    }
+
+    if (delay >= 10) {
+      cls = "bad";
+      status = `${delay} min forsinket`;
+    }
+
+    const situationText = target.situations?.length
+      ? target.situations.map(s => s.summary?.[0]?.value || s.description?.[0]?.value || "").filter(Boolean).join("<br>")
+      : "";
+
+    train.innerHTML = `<span class="${cls}">${status}</span>`;
+
+    trainDetails.innerHTML =
+      `Avgang: ${aimed.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}` +
+      `<br>Forventet: ${expected.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}` +
+      `<br>Retning: ${destination}` +
+      `<br>Linje: ${lineText || "ikke oppgitt"}` +
+      `<br>Spor/plattform: ${track}` +
+      (situationText ? `<br><span class="bad">Varsel: ${situationText}</span>` : "");
+  } catch(e) {
+    train.innerHTML = `<span class="warn">Kunne ikke hente sanntid</span>`;
+    trainDetails.innerHTML = `Sjekk Entur/Vy manuelt. Feil: ${e.message}`;
+  }
+};
 
   try{
     const r = await fetch("https://api.entur.io/journey-planner/v3/graphql",{
