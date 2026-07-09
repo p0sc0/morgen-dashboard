@@ -5,21 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Morgen-dashboard</title>
 <style>
-body{margin:0;background:#070b12;color:white;font-family:Arial,sans-serif;padding:24px}
-.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px}
-#clock{font-size:76px;font-weight:800}
-#date{text-align:right;font-size:28px;opacity:.9}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.card{background:#111824;border:1px solid #263346;border-radius:22px;padding:20px;box-shadow:0 10px 30px #0008}
-h2{margin:0 0 8px;font-size:30px}
-.now{display:flex;align-items:center;gap:18px;margin:12px 0 18px}
-.icon{font-size:54px}.temp{font-size:58px;font-weight:800}
-.meta{font-size:18px;opacity:.85;line-height:1.5}
-.hours{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}
-.hour{background:#0b111b;border-radius:14px;padding:12px;text-align:center}
-.hour .t{font-size:17px;opacity:.8}.hour .i{font-size:30px;margin:8px 0}.hour .c{font-size:24px;font-weight:700}
-.bottom{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-top:16px}
-.big{font-size:34px;font-weight:800}.muted{opacity:.75;font-size:20px;line-height:1.45}
+body{margin:0;background:#070b12;color:white;font-family:Arial,sans-serif;padding:20px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}
+#clock{font-size:72px;font-weight:800}
+#date{text-align:right;font-size:26px;opacity:.9}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.card{background:#111824;border:1px solid #263346;border-radius:20px;padding:16px;box-shadow:0 10px 30px #0008}
+h2{margin:0 0 8px;font-size:28px}
+.now{display:flex;align-items:center;gap:14px;margin:10px 0 14px}
+.icon{font-size:48px}.temp{font-size:52px;font-weight:800}
+.meta{font-size:17px;opacity:.85;line-height:1.4}
+.hours{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:12px}
+.hour{background:#0b111b;border-radius:12px;padding:10px;text-align:center}
+.hour .t{font-size:15px;opacity:.8}.hour .i{font-size:26px;margin:6px 0}.hour .c{font-size:22px;font-weight:700}
+.bottom{display:grid;grid-template-columns:1fr 1.25fr;gap:14px;margin-top:14px}
+.big{font-size:30px;font-weight:800}.muted{opacity:.75;font-size:18px;line-height:1.45}
+.ok{color:#8df58d}.warn{color:#ffd36b}.bad{color:#ff8a8a}
+.calendar{width:100%;border-collapse:collapse;margin-top:8px}
+.calendar th,.calendar td{text-align:center;padding:5px;font-size:16px}
+.calendar th{opacity:.7}
+.calendar .weekno{opacity:.55}
+.calendar .today{background:#2b6cff;border-radius:8px;font-weight:800}
 </style>
 </head>
 <body>
@@ -35,13 +41,13 @@ h2{margin:0 0 8px;font-size:30px}
   <div class="card">
     <h2>Tog til jobb</h2>
     <div class="muted">Lillehammer → Hamar</div>
-    <div class="big">Avgang ca. 07:14</div>
-    <div class="muted">Neste versjon: sanntid fra Entur.</div>
+    <div id="train" class="big">Henter togstatus...</div>
+    <div id="trainDetails" class="muted"></div>
   </div>
+
   <div class="card">
-    <h2>Kalender</h2>
-    <div id="week" class="big"></div>
-    <div id="days" class="muted"></div>
+    <h2 id="calTitle">Kalender</h2>
+    <div id="calendar"></div>
   </div>
 </div>
 
@@ -53,16 +59,15 @@ const steder = [
 ];
 
 function icon(code){
-  if([0].includes(code)) return "☀️";
+  if(code===0) return "☀️";
   if([1,2].includes(code)) return "🌤️";
-  if([3].includes(code)) return "☁️";
+  if(code===3) return "☁️";
   if([45,48].includes(code)) return "🌫️";
   if([51,53,55,61,63,65,80,81,82].includes(code)) return "🌧️";
   if([71,73,75,77,85,86].includes(code)) return "❄️";
   if([95,96,99].includes(code)) return "⛈️";
   return "🌡️";
 }
-
 function desc(code){
   if(code===0) return "Klart";
   if([1,2].includes(code)) return "Delvis skyet";
@@ -74,7 +79,6 @@ function desc(code){
   if([95,96,99].includes(code)) return "Torden";
   return "Vær";
 }
-
 function isoWeek(d){
   const date = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
   const dayNum = date.getUTCDay() || 7;
@@ -82,74 +86,150 @@ function isoWeek(d){
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
   return Math.ceil((((date-yearStart)/86400000)+1)/7);
 }
-
 function updateClock(){
   const n = new Date();
   clock.textContent = n.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"});
   date.innerHTML = n.toLocaleDateString("no-NO",{weekday:"long",day:"numeric",month:"long"})+"<br>Uke "+isoWeek(n);
-  week.textContent = "Uke "+isoWeek(n);
-  let out="";
-  for(let i=0;i<7;i++){
-    const d=new Date(n); d.setDate(n.getDate()+i);
-    out += d.toLocaleDateString("no-NO",{weekday:"short",day:"numeric",month:"short"})+"<br>";
-  }
-  days.innerHTML=out;
 }
-
 async function hentVaer(sted){
   const url=`https://api.open-meteo.com/v1/forecast?latitude=${sted.lat}&longitude=${sted.lon}&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&forecast_days=2&timezone=Europe%2FOslo`;
   const r=await fetch(url);
   const data=await r.json();
-
   const now=new Date();
   const times=data.hourly.time.map(t=>new Date(t));
-  let idx=times.findIndex(t=>t>=now);
-  if(idx<0) idx=0;
-
+  let idx=times.findIndex(t=>t>=now); if(idx<0) idx=0;
   const h=data.hourly;
   const slots=[];
   for(const hour of [6,12,18,24]){
     const target=new Date(now);
     target.setHours(hour===24?0:hour,0,0,0);
     if(hour===24) target.setDate(target.getDate()+1);
-    let best=0, diff=Infinity;
+    let best=0,diff=Infinity;
     times.forEach((t,i)=>{const d=Math.abs(t-target); if(d<diff){diff=d;best=i;}});
     slots.push(best);
   }
-
-  return `
-  <div class="card">
+  return `<div class="card">
     <h2>${sted.navn}</h2>
     <div class="meta">I dag: ${Math.round(data.daily.temperature_2m_min[0])}° / ${Math.round(data.daily.temperature_2m_max[0])}° · Nedbør ${data.daily.precipitation_sum[0].toFixed(1)} mm</div>
-    <div class="now">
-      <div class="icon">${icon(h.weather_code[idx])}</div>
-      <div>
-        <div class="temp">${Math.round(h.temperature_2m[idx])}°</div>
-        <div class="meta">${desc(h.weather_code[idx])}<br>Vind ${Math.round(h.wind_speed_10m[idx])} km/t · ${h.precipitation[idx].toFixed(1)} mm</div>
-      </div>
-    </div>
-    <div class="hours">
-      ${slots.map(i=>`
-        <div class="hour">
-          <div class="t">${times[i].toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}</div>
-          <div class="i">${icon(h.weather_code[i])}</div>
-          <div class="c">${Math.round(h.temperature_2m[i])}°</div>
-          <div class="t">${h.precipitation[i].toFixed(1)} mm</div>
-        </div>
-      `).join("")}
-    </div>
+    <div class="now"><div class="icon">${icon(h.weather_code[idx])}</div><div>
+      <div class="temp">${Math.round(h.temperature_2m[idx])}°</div>
+      <div class="meta">${desc(h.weather_code[idx])}<br>Vind ${Math.round(h.wind_speed_10m[idx])} km/t · ${h.precipitation[idx].toFixed(1)} mm</div>
+    </div></div>
+    <div class="hours">${slots.map(i=>`<div class="hour">
+      <div class="t">${times[i].toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}</div>
+      <div class="i">${icon(h.weather_code[i])}</div>
+      <div class="c">${Math.round(h.temperature_2m[i])}°</div>
+      <div class="t">${h.precipitation[i].toFixed(1)} mm</div>
+    </div>`).join("")}</div>
   </div>`;
 }
+async function tegnVaer(){
+  weather.innerHTML="Laster vær...";
+  weather.innerHTML=(await Promise.all(steder.map(hentVaer))).join("");
+}
 
-async function tegn(){
-  weather.innerHTML = "Laster vær...";
-  weather.innerHTML = (await Promise.all(steder.map(hentVaer))).join("");
+function drawCalendar(){
+  const now=new Date();
+  const year=now.getFullYear(), month=now.getMonth();
+  calTitle.textContent = now.toLocaleDateString("no-NO",{month:"long",year:"numeric"});
+  const first=new Date(year,month,1);
+  const last=new Date(year,month+1,0);
+  const start=new Date(first);
+  start.setDate(first.getDate()-((first.getDay()+6)%7));
+  let html=`<table class="calendar"><tr><th>Uke</th><th>Ma</th><th>Ti</th><th>On</th><th>To</th><th>Fr</th><th>Lø</th><th>Sø</th></tr>`;
+  for(let w=0;w<6;w++){
+    html+=`<tr><td class="weekno">${isoWeek(start)}</td>`;
+    for(let d=0;d<7;d++){
+      const cls = start.toDateString()===now.toDateString() ? "today" : "";
+      const faded = start.getMonth()!==month ? "opacity:.25" : "";
+      html+=`<td style="${faded}"><div class="${cls}">${start.getDate()}</div></td>`;
+      start.setDate(start.getDate()+1);
+    }
+    html+="</tr>";
+    if(start>last && start.getDay()===1) break;
+  }
+  html+="</table>";
+  calendar.innerHTML=html;
+}
+
+async function hentTog(){
+  const tomorrowOrToday = new Date();
+  tomorrowOrToday.setHours(7,0,0,0);
+  if(new Date().getHours() > 10) tomorrowOrToday.setDate(tomorrowOrToday.getDate()+1);
+
+  const query = `
+  query($dateTime: DateTime!) {
+    trip(
+      from: {coordinates: {latitude: 61.1153, longitude: 10.4662}, name: "Lillehammer"}
+      to: {coordinates: {latitude: 60.7945, longitude: 11.0679}, name: "Hamar"}
+      dateTime: $dateTime
+      numTripPatterns: 4
+      modes: {transportModes: [rail]}
+    ) {
+      tripPatterns {
+        duration
+        legs {
+          aimedStartTime
+          expectedStartTime
+          aimedEndTime
+          expectedEndTime
+          mode
+          line { publicCode name }
+          fromPlace { name quay { publicCode } }
+          toPlace { name quay { publicCode } }
+          situations { summary { value } description { value } }
+        }
+      }
+    }
+  }`;
+
+  try{
+    const r = await fetch("https://api.entur.io/journey-planner/v3/graphql",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "ET-Client-Name":"hakon-morgen-dashboard"
+      },
+      body:JSON.stringify({query,variables:{dateTime:tomorrowOrToday.toISOString()}})
+    });
+    const json = await r.json();
+    const patterns = json.data?.trip?.tripPatterns || [];
+    const railLegs = patterns.map(p=>p.legs.find(l=>l.mode==="rail")).filter(Boolean);
+
+    let leg = railLegs.find(l=>{
+      const t=new Date(l.aimedStartTime);
+      return t.getHours()===7 && Math.abs(t.getMinutes()-14)<=10;
+    }) || railLegs[0];
+
+    if(!leg){ throw new Error("Fant ingen togavgang"); }
+
+    const aimed=new Date(leg.aimedStartTime);
+    const exp=new Date(leg.expectedStartTime || leg.aimedStartTime);
+    const delay=Math.round((exp-aimed)/60000);
+    const cls = delay<=2 ? "ok" : delay<10 ? "warn" : "bad";
+    const status = delay<=2 ? "I rute" : `${delay} min forsinket`;
+
+    train.innerHTML = `<span class="${cls}">${status}</span>`;
+    trainDetails.innerHTML =
+      `Avgang: ${aimed.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}`+
+      `<br>Forventet: ${exp.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}`+
+      `<br>Linje: ${leg.line?.publicCode || ""} ${leg.line?.name || ""}`+
+      `<br>Spor/plattform: ${leg.fromPlace?.quay?.publicCode || "ikke oppgitt"}`+
+      (leg.situations?.length ? `<br><span class="bad">Varsel: ${leg.situations[0].summary?.[0]?.value || "Se Entur/Vy"}</span>` : "");
+  }catch(e){
+    train.innerHTML = `<span class="warn">Kunne ikke hente sanntid</span>`;
+    trainDetails.innerHTML = `Sjekk Entur/Vy manuelt. Feil: ${e.message}`;
+  }
 }
 
 updateClock();
+drawCalendar();
+tegnVaer();
+hentTog();
+
 setInterval(updateClock,10000);
-tegn();
-setInterval(tegn,15*60*1000);
+setInterval(tegnVaer,15*60*1000);
+setInterval(hentTog,5*60*1000);
 </script>
 </body>
 </html>
