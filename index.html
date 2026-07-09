@@ -234,39 +234,63 @@ function drawCalendar(){
 }
 
 async function hentTog(){
+  const now = new Date();
+
+  // Vi sikter mot neste relevante 07:14-avgang.
+  const targetDate = new Date();
+  targetDate.setHours(7, 0, 0, 0);
+
+  // Hvis klokka er etter 10, viser vi morgendagens morgenavgang.
+  if (now.getHours() >= 10) {
+    targetDate.setDate(targetDate.getDate() + 1);
+  }
+
   const query = `
-  {
-    stopPlace(id: "NSR:StopPlace:420") {
-      id
-      name
-      estimatedCalls(
-        timeRange: 14400
-        numberOfDepartures: 20
-        whiteListed: {transportModes: [rail]}
-      ) {
-        aimedDepartureTime
-        expectedDepartureTime
-        destinationDisplay {
-          frontText
-        }
-        serviceJourney {
-          journeyPattern {
-            line {
+  query($dateTime: DateTime!) {
+    trip(
+      from: {
+        place: "NSR:StopPlace:420",
+        name: "Lillehammer stasjon"
+      },
+      to: {
+        place: "NSR:StopPlace:60045",
+        name: "Hamar stasjon"
+      },
+      dateTime: $dateTime,
+      numTripPatterns: 5
+    ) {
+      tripPatterns {
+        startTime
+        duration
+        legs {
+          mode
+          aimedStartTime
+          expectedStartTime
+          aimedEndTime
+          expectedEndTime
+          line {
+            publicCode
+            name
+          }
+          fromPlace {
+            name
+            quay {
               publicCode
-              name
-              transportMode
             }
           }
-        }
-        quay {
-          publicCode
-        }
-        situations {
-          summary {
-            value
+          toPlace {
+            name
+            quay {
+              publicCode
+            }
           }
-          description {
-            value
+          situations {
+            summary {
+              value
+            }
+            description {
+              value
+            }
           }
         }
       }
@@ -280,7 +304,12 @@ async function hentTog(){
         "Content-Type": "application/json",
         "ET-Client-Name": "hakon-morgen-dashboard"
       },
-      body: JSON.stringify({ query })
+      body: JSON.stringify({
+        query,
+        variables: {
+          dateTime: targetDate.toISOString()
+        }
+      })
     });
 
     const json = await r.json();
@@ -289,42 +318,34 @@ async function hentTog(){
       throw new Error(json.errors[0].message);
     }
 
-    const calls = json.data?.stopPlace?.estimatedCalls || [];
+    const patterns = json.data?.trip?.tripPatterns || [];
 
-    const relevant = calls.filter(c => {
-      const dest = (c.destinationDisplay?.frontText || "").toLowerCase();
-      const lineName = (c.serviceJourney?.journeyPattern?.line?.name || "").toLowerCase();
-      const code = (c.serviceJourney?.journeyPattern?.line?.publicCode || "").toLowerCase();
+    const railOptions = patterns
+      .map(p => {
+        const railLeg = p.legs.find(l => l.mode === "rail");
+        return railLeg ? { pattern: p, leg: railLeg } : null;
+      })
+      .filter(Boolean);
 
-      return (
-        dest.includes("hamar") ||
-        dest.includes("oslo") ||
-        dest.includes("drammen") ||
-        lineName.includes("hamar") ||
-        lineName.includes("oslo") ||
-        code.includes("r10") ||
-        code.includes("r60") ||
-        code.includes("r70")
-      );
-    });
+    let option = railOptions.find(o => {
+      const t = new Date(o.leg.aimedStartTime);
+      return t.getHours() === 7 && Math.abs(t.getMinutes() - 14) <= 25;
+    }) || railOptions[0];
 
-    let target = relevant.find(c => {
-      const t = new Date(c.aimedDepartureTime);
-      return t.getHours() === 7 && Math.abs(t.getMinutes() - 14) <= 20;
-    }) || relevant[0];
-
-    if (!target) {
-      throw new Error("Fant ingen relevant togavgang fra Lillehammer");
+    if (!option) {
+      throw new Error("Fant ingen togreise Lillehammer–Hamar");
     }
 
-    const aimed = new Date(target.aimedDepartureTime);
-    const expected = new Date(target.expectedDepartureTime || target.aimedDepartureTime);
-    const delay = Math.round((expected - aimed) / 60000);
+    const leg = option.leg;
 
-    const line = target.serviceJourney?.journeyPattern?.line;
-    const lineText = `${line?.publicCode || ""} ${line?.name || ""}`.trim();
-    const destination = target.destinationDisplay?.frontText || "ukjent retning";
-    const track = target.quay?.publicCode || "ikke oppgitt";
+    const aimedStart = new Date(leg.aimedStartTime);
+    const expectedStart = new Date(leg.expectedStartTime || leg.aimedStartTime);
+    const aimedEnd = new Date(leg.aimedEndTime);
+    const expectedEnd = new Date(leg.expectedEndTime || leg.aimedEndTime);
+
+    const delayStart = Math.round((expectedStart - aimedStart) / 60000);
+    const delayEnd = Math.round((expectedEnd - aimedEnd) / 60000);
+    const delay = Math.max(delayStart, delayEnd);
 
     let cls = "ok";
     let status = "I rute";
@@ -339,25 +360,34 @@ async function hentTog(){
       status = `${delay} min forsinket`;
     }
 
-    const situationText = target.situations?.length
-      ? target.situations.map(s => s.summary?.[0]?.value || s.description?.[0]?.value || "").filter(Boolean).join("<br>")
+    const lineText = `${leg.line?.publicCode || ""} ${leg.line?.name || ""}`.trim();
+    const fromTrack = leg.fromPlace?.quay?.publicCode || "ikke oppgitt";
+
+    const situationText = leg.situations?.length
+      ? leg.situations
+          .map(s => s.summary?.[0]?.value || s.description?.[0]?.value || "")
+          .filter(Boolean)
+          .join("<br>")
       : "";
 
     train.innerHTML = `<span class="${cls}">${status}</span>`;
 
     trainDetails.innerHTML =
-      `Avgang: ${aimed.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}` +
-      `<br>Forventet: ${expected.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}` +
-      `<br>Retning: ${destination}` +
-      `<br>Linje: ${lineText || "ikke oppgitt"}` +
-      `<br>Spor/plattform: ${track}` +
-      (situationText ? `<br><span class="bad">Varsel: ${situationText}</span>` : "");
+      `Avgang: ${aimedStart.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}` +
+      `<br>Forventet avgang: ${expectedStart.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}` +
+      `<br>Ankomst Hamar: ${expectedEnd.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}` +
+      `<br>Linje: ${lineText || "tog"}` +
+      `<br>Spor/plattform: ${fromTrack}` +
+      `<br>Strekning: Lillehammer → Hamar` +
+      (situationText
+        ? `<br><span class="bad">Varsel: ${situationText}</span>`
+        : `<br><span class="ok">Ingen kjente varsler på reisen</span>`);
   } catch(e) {
-    train.innerHTML = `<span class="warn">Kunne ikke hente sanntid</span>`;
-    trainDetails.innerHTML = `Sjekk Entur/Vy manuelt. Feil: ${e.message}`;
+    train.innerHTML = `<span class="warn">Kunne ikke hente togstatus</span>`;
+    trainDetails.innerHTML =
+      `Sjekk Entur/Vy manuelt.<br>Feil: ${e.message}`;
   }
 }
-
 updateClock();
 drawCalendar();
 tegnVaer();
