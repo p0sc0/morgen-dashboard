@@ -68,6 +68,7 @@ function icon(code){
   if([95,96,99].includes(code)) return "⛈️";
   return "🌡️";
 }
+
 function desc(code){
   if(code===0) return "Klart";
   if([1,2].includes(code)) return "Delvis skyet";
@@ -79,6 +80,7 @@ function desc(code){
   if([95,96,99].includes(code)) return "Torden";
   return "Vær";
 }
+
 function isoWeek(d){
   const date = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
   const dayNum = date.getUTCDay() || 7;
@@ -86,43 +88,118 @@ function isoWeek(d){
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
   return Math.ceil((((date-yearStart)/86400000)+1)/7);
 }
+
 function updateClock(){
   const n = new Date();
   clock.textContent = n.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"});
   date.innerHTML = n.toLocaleDateString("no-NO",{weekday:"long",day:"numeric",month:"long"})+"<br>Uke "+isoWeek(n);
 }
+
 async function hentVaer(sted){
-  const url=`https://api.open-meteo.com/v1/forecast?latitude=${sted.lat}&longitude=${sted.lon}&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&forecast_days=2&timezone=Europe%2FOslo`;
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${sted.lat}&longitude=${sted.lon}&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m&forecast_days=3&timezone=Europe%2FOslo`;
   const r=await fetch(url);
   const data=await r.json();
+
   const now=new Date();
   const times=data.hourly.time.map(t=>new Date(t));
-  let idx=times.findIndex(t=>t>=now); if(idx<0) idx=0;
   const h=data.hourly;
-  const slots=[];
-  for(const hour of [6,12,18,24]){
-    const target=new Date(now);
-    target.setHours(hour===24?0:hour,0,0,0);
-    if(hour===24) target.setDate(target.getDate()+1);
-    let best=0,diff=Infinity;
-    times.forEach((t,i)=>{const d=Math.abs(t-target); if(d<diff){diff=d;best=i;}});
-    slots.push(best);
+
+  let idx=times.findIndex(t=>t>=now);
+  if(idx<0) idx=0;
+
+  const currentHour = now.getHours();
+  const blockStarts = [0,6,12,18];
+  let currentBlockStart = 0;
+  for (const b of blockStarts) {
+    if (currentHour >= b) currentBlockStart = b;
   }
+
+  const slots = [];
+
+  for(let n=0;n<4;n++){
+    const start = new Date(now);
+
+    if(n===0){
+      start.setHours(currentHour,0,0,0);
+    } else {
+      start.setHours(currentBlockStart + n*6,0,0,0);
+      while(start <= now){
+        start.setDate(start.getDate()+1);
+      }
+    }
+
+    const end = new Date(start);
+
+    if(n===0){
+      const nextBlock = new Date(now);
+      nextBlock.setHours(currentBlockStart + 6,0,0,0);
+      if(nextBlock <= now) nextBlock.setDate(nextBlock.getDate()+1);
+      end.setTime(nextBlock.getTime());
+    } else {
+      end.setHours(start.getHours()+6,0,0,0);
+    }
+
+    let indexes = times
+      .map((t,i)=>({t,i}))
+      .filter(x=>x.t>=start && x.t<end)
+      .map(x=>x.i);
+
+    if(indexes.length===0){
+      let best=0, diff=Infinity;
+      times.forEach((t,i)=>{
+        const d=Math.abs(t-start);
+        if(d<diff){diff=d;best=i;}
+      });
+      indexes=[best];
+    }
+
+    const temps = indexes.map(i=>h.temperature_2m[i]);
+    const precip = indexes.reduce((sum,i)=>sum + h.precipitation[i],0);
+
+    const code = indexes
+      .map(i=>h.weather_code[i])
+      .sort((a,b)=>
+        indexes.filter(i=>h.weather_code[i]===b).length -
+        indexes.filter(i=>h.weather_code[i]===a).length
+      )[0];
+
+    const avgTemp = Math.round(temps.reduce((a,b)=>a+b,0)/temps.length);
+
+    slots.push({
+      label: `${start.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}–${end.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}`,
+      temp: avgTemp,
+      precip,
+      code
+    });
+  }
+
+  const next24End = new Date(now.getTime()+24*60*60*1000);
+  const next24Indexes = times
+    .map((t,i)=>({t,i}))
+    .filter(x=>x.t>=now && x.t<=next24End)
+    .map(x=>x.i);
+
+  const temps24 = next24Indexes.map(i=>h.temperature_2m[i]);
+  const min24 = Math.round(Math.min(...temps24));
+  const max24 = Math.round(Math.max(...temps24));
+  const precip24 = next24Indexes.reduce((sum,i)=>sum + h.precipitation[i],0);
+
   return `<div class="card">
     <h2>${sted.navn}</h2>
-    <div class="meta">I dag: ${Math.round(data.daily.temperature_2m_min[0])}° / ${Math.round(data.daily.temperature_2m_max[0])}° · Nedbør ${data.daily.precipitation_sum[0].toFixed(1)} mm</div>
+    <div class="meta">Neste 24 t: ${min24}° / ${max24}° · Nedbør ${precip24.toFixed(1)} mm</div>
     <div class="now"><div class="icon">${icon(h.weather_code[idx])}</div><div>
       <div class="temp">${Math.round(h.temperature_2m[idx])}°</div>
       <div class="meta">${desc(h.weather_code[idx])}<br>Vind ${Math.round(h.wind_speed_10m[idx])} km/t · ${h.precipitation[idx].toFixed(1)} mm</div>
     </div></div>
-    <div class="hours">${slots.map(i=>`<div class="hour">
-      <div class="t">${times[i].toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}</div>
-      <div class="i">${icon(h.weather_code[i])}</div>
-      <div class="c">${Math.round(h.temperature_2m[i])}°</div>
-      <div class="t">${h.precipitation[i].toFixed(1)} mm</div>
+    <div class="hours">${slots.map(s=>`<div class="hour">
+      <div class="t">${s.label}</div>
+      <div class="i">${icon(s.code)}</div>
+      <div class="c">${s.temp}°</div>
+      <div class="t">${s.precip.toFixed(1)} mm</div>
     </div>`).join("")}</div>
   </div>`;
 }
+
 async function tegnVaer(){
   weather.innerHTML="Laster vær...";
   weather.innerHTML=(await Promise.all(steder.map(hentVaer))).join("");
@@ -136,7 +213,10 @@ function drawCalendar(){
   const last=new Date(year,month+1,0);
   const start=new Date(first);
   start.setDate(first.getDate()-((first.getDay()+6)%7));
-  let html=`<table class="calendar"><tr><th>Uke</th><th>Ma</th><th>Ti</th><th>On</th><th>To</th><th>Fr</th><th>Lø</th><th>Sø</th></tr>`;
+
+  let html=`<table class="calendar">
+    <tr><th>Uke</th><th>Ma</th><th>Ti</th><th>On</th><th>To</th><th>Fr</th><th>Lø</th><th>Sø</th></tr>`;
+
   for(let w=0;w<6;w++){
     html+=`<tr><td class="weekno">${isoWeek(start)}</td>`;
     for(let d=0;d<7;d++){
@@ -148,9 +228,11 @@ function drawCalendar(){
     html+="</tr>";
     if(start>last && start.getDay()===1) break;
   }
+
   html+="</table>";
   calendar.innerHTML=html;
 }
+
 async function hentTog(){
   const query = `
   {
@@ -271,45 +353,6 @@ async function hentTog(){
       `<br>Spor/plattform: ${track}` +
       (situationText ? `<br><span class="bad">Varsel: ${situationText}</span>` : "");
   } catch(e) {
-    train.innerHTML = `<span class="warn">Kunne ikke hente sanntid</span>`;
-    trainDetails.innerHTML = `Sjekk Entur/Vy manuelt. Feil: ${e.message}`;
-  }
-};
-
-  try{
-    const r = await fetch("https://api.entur.io/journey-planner/v3/graphql",{
-      method:"POST",
-      headers:{
-        "Content-Type":"application/json",
-        "ET-Client-Name":"hakon-morgen-dashboard"
-      },
-      body:JSON.stringify({query,variables:{dateTime:tomorrowOrToday.toISOString()}})
-    });
-    const json = await r.json();
-    const patterns = json.data?.trip?.tripPatterns || [];
-    const railLegs = patterns.map(p=>p.legs.find(l=>l.mode==="rail")).filter(Boolean);
-
-    let leg = railLegs.find(l=>{
-      const t=new Date(l.aimedStartTime);
-      return t.getHours()===7 && Math.abs(t.getMinutes()-14)<=10;
-    }) || railLegs[0];
-
-    if(!leg){ throw new Error("Fant ingen togavgang"); }
-
-    const aimed=new Date(leg.aimedStartTime);
-    const exp=new Date(leg.expectedStartTime || leg.aimedStartTime);
-    const delay=Math.round((exp-aimed)/60000);
-    const cls = delay<=2 ? "ok" : delay<10 ? "warn" : "bad";
-    const status = delay<=2 ? "I rute" : `${delay} min forsinket`;
-
-    train.innerHTML = `<span class="${cls}">${status}</span>`;
-    trainDetails.innerHTML =
-      `Avgang: ${aimed.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}`+
-      `<br>Forventet: ${exp.toLocaleTimeString("no-NO",{hour:"2-digit",minute:"2-digit"})}`+
-      `<br>Linje: ${leg.line?.publicCode || ""} ${leg.line?.name || ""}`+
-      `<br>Spor/plattform: ${leg.fromPlace?.quay?.publicCode || "ikke oppgitt"}`+
-      (leg.situations?.length ? `<br><span class="bad">Varsel: ${leg.situations[0].summary?.[0]?.value || "Se Entur/Vy"}</span>` : "");
-  }catch(e){
     train.innerHTML = `<span class="warn">Kunne ikke hente sanntid</span>`;
     trainDetails.innerHTML = `Sjekk Entur/Vy manuelt. Feil: ${e.message}`;
   }
